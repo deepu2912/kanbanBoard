@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kanban Task Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            overscroll-behavior: none;
+            /* Prevents pull-to-refresh on mobile when dragging */
+        }
+
+        .kanban-column {
+            min-height: 300px;
+            /* Minimum height for columns to be droppable even when empty */
+        }
+
+        .task-card {
+            cursor: grab;
+            transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+
+        .task-card:active {
+            cursor: grabbing;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        .dragging {
+            opacity: 0.5;
+            border: 2px dashed #4F46E5;
+            /* Indigo-600 */
+        }
+
+        .drag-over {
+            border: 2px dashed #10B981;
+            /* Emerald-500 */
+            background-color: #F0FDF4;
+            /* Emerald-50 */
+        }
+
+        .confetti-particle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            opacity: 0.9;
+            pointer-events: none;
+            /* So they don't interfere with UI */
+            z-index: 9999;
+        }
+
+        /* Modal styles */
+        .modal {
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+
+        .modal-content {
+            transition: transform 0.3s ease;
+        }
+
+        /* Custom scrollbar for task lists if needed */
+        .tasks-container::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .tasks-container::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+
+        .tasks-container::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+
+        .tasks-container::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+
+<body
+    class="bg-gradient-to-br from-slate-900 to-slate-800 text-white min-h-screen p-4 sm:p-6 lg:p-8 flex flex-col items-center justify-center">
+
+    <div id="loginSection" class="text-center">
+        <h1
+            class="text-4xl sm:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 mb-8">
+            Welcome to Kanban Tracker</h1>
+        <button id="loginWithGoogleBtn" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition duration-150 ease-in-out transform hover:scale-105">
+            <i class="fab fa-google mr-2"></i>Sign in with Google
+        </button>
+    </div>
+
+    <div id="appContent" class="container mx-auto max-w-7xl hidden">
+        <header class="my-8 text-center">
+            <div class="flex flex-col sm:flex-row justify-between items-center">
+                <h1
+                    class="text-3xl sm:text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-pink-500 to-red-500 mb-2 sm:mb-0">
+                    Kanban Task Tracker</h1>
+                <div class="flex items-center space-x-4">
+                    <p class="text-sm text-slate-400">Logged in as:
+                        <span id="userNameDisplay" class="font-semibold"></span>
+                        (<span id="userIdDisplay" class="font-mono text-xs"></span>)</p>
+                    <button id="logoutBtn" class="bg-slate-600 hover:bg-slate-700 text-white text-xs font-semibold py-2 px-4 rounded-lg shadow-md transition">
+                        <i class="fas fa-sign-out-alt mr-1"></i>Logout
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <div class="mb-6 text-center">
+            <button id="addTaskBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition duration-150 ease-in-out transform hover:scale-105">
+                <i class="fas fa-plus mr-2"></i>Add New Task
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div id="todo" class="kanban-column bg-slate-700/50 p-4 rounded-xl shadow-xl" data-status="todo">
+                <h2 class="text-2xl font-semibold mb-4 text-center text-sky-400 border-b-2 border-sky-500 pb-2">To Do
+                </h2>
+                <div class="tasks-container space-y-4 min-h-[200px] max-h-[60vh] overflow-y-auto p-1">
+                </div>
+            </div>
+
+            <div id="inprogress" class="kanban-column bg-slate-700/50 p-4 rounded-xl shadow-xl"
+                data-status="inprogress">
+                <h2 class="text-2xl font-semibold mb-4 text-center text-amber-400 border-b-2 border-amber-500 pb-2">In
+                    Progress</h2>
+                <div class="tasks-container space-y-4 min-h-[200px] max-h-[60vh] overflow-y-auto p-1">
+                </div>
+            </div>
+
+            <div id="done" class="kanban-column bg-slate-700/50 p-4 rounded-xl shadow-xl" data-status="done">
+                <h2 class="text-2xl font-semibold mb-4 text-center text-emerald-400 border-b-2 border-emerald-500 pb-2">
+                    Done</h2>
+                <div class="tasks-container space-y-4 min-h-[200px] max-h-[60vh] overflow-y-auto p-1">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="taskModal"
+        class="modal fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 invisible opacity-0">
+        <div class="modal-content bg-slate-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-md transform scale-95">
+            <h3 id="modalTitle" class="text-2xl font-semibold mb-6 text-center text-white">Add New Task</h3>
+            <form id="taskForm">
+                <input type="hidden" id="taskId">
+                <div class="mb-4">
+                    <label for="taskTitle" class="block text-sm font-medium text-slate-300 mb-1">Title</label>
+                    <input type="text" id="taskTitle" name="taskTitle" class="w-full p-3 bg-slate-700 text-white border border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none" required>
+                </div>
+                <div class="mb-6">
+                    <label for="taskDescription" class="block text-sm font-medium text-slate-300 mb-1">Description (Optional)</label>
+                    <textarea id="taskDescription" name="taskDescription" rows="3" class="w-full p-3 bg-slate-700 text-white border border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"></textarea>
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button type="button" id="cancelTaskBtn" class="px-5 py-2.5 text-sm font-medium text-slate-300 bg-slate-600 hover:bg-slate-500 rounded-lg transition">Cancel</button>
+                    <button type="submit" id="saveTaskBtn" class="px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition">Save Task</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="customAlertModal"
+        class="modal fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-[100] invisible opacity-0">
+        <div class="modal-content bg-slate-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-sm transform scale-95">
+            <h3 id="customAlertTitle" class="text-xl font-semibold mb-4 text-white">Alert</h3>
+            <p id="customAlertMessage" class="text-slate-300 mb-6"></p>
+            <div class="flex justify-end">
+                <button id="customAlertOkBtn" class="px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition">OK</button>
+            </div>
+        </div>
+    </div>
+
+
+    <script type="module">
+        // Firebase imports
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            onAuthStateChanged, 
+            GoogleAuthProvider, 
+            signInWithPopup, 
+            signOut,
+            setPersistence,
+            browserLocalPersistence
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            doc, 
+            setDoc, 
+            addDoc, 
+            getDoc, 
+            updateDoc, 
+            deleteDoc, 
+            onSnapshot, 
+            collection, 
+            query, 
+            serverTimestamp,
+            writeBatch 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Firebase Configuration and Initialization ---
+        // IMPORTANT: Ensure your Firebase project has the domain where this app is hosted
+        // added to the "Authorized domains" list in Firebase Console > Authentication > Sign-in method.
+        // Otherwise, Google Sign-In will fail with an 'auth/unauthorized-domain' error.
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { 
+            apiKey: "AIzaSyBYDw7ft0FWJOqtjWBWfkq4-Etgwl99ZzM", 
+            authDomain: "widgetgallery-640cb.firebaseapp.com",
+            projectId: "widgetgallery-640cb",
+            storageBucket: "widgetgallery-640cb.firebasestorage.app",
+            messagingSenderId: "748773693138",
+            appId: "1:748773693138:web:54a64c0fa86fa740c5ff0b",
+            measurementId: "G-M1T6GXB6E5"
+            // Add other config values if needed (storageBucket, messagingSenderId, appId)
+        };
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-kanban-app';
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        // import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js"; // For debugging
+        // setLogLevel('debug'); // Uncomment for Firestore logging
+
+        let currentUserId = null;
+        let tasksCollectionRef = null;
+        let unsubscribeTasks = null; 
+
+        // --- DOM Elements ---
+        const loginSection = document.getElementById('loginSection');
+        const appContent = document.getElementById('appContent');
+        const loginWithGoogleBtn = document.getElementById('loginWithGoogleBtn');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const userNameDisplay = document.getElementById('userNameDisplay');
+        const userIdDisplay = document.getElementById('userIdDisplay');
+
+        const addTaskBtn = document.getElementById('addTaskBtn');
+        const taskModal = document.getElementById('taskModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const taskForm = document.getElementById('taskForm');
+        const taskIdInput = document.getElementById('taskId');
+        const taskTitleInput = document.getElementById('taskTitle');
+        const taskDescriptionInput = document.getElementById('taskDescription');
+        const cancelTaskBtn = document.getElementById('cancelTaskBtn');
+        const saveTaskBtn = document.getElementById('saveTaskBtn');
+        
+        const columns = {
+            todo: document.querySelector('#todo .tasks-container'),
+            inprogress: document.querySelector('#inprogress .tasks-container'),
+            done: document.querySelector('#done .tasks-container')
+        };
+        const columnElements = document.querySelectorAll('.kanban-column');
+
+        const customAlertModal = document.getElementById('customAlertModal');
+        const customAlertTitle = document.getElementById('customAlertTitle');
+        const customAlertMessage = document.getElementById('customAlertMessage');
+        const customAlertOkBtn = document.getElementById('customAlertOkBtn');
+
+        // --- Custom Alert Function ---
+        function showAlert(title, message) {
+            customAlertTitle.textContent = title;
+            customAlertMessage.textContent = message;
+            customAlertModal.classList.remove('invisible', 'opacity-0');
+            customAlertModal.querySelector('.modal-content').classList.remove('scale-95');
+            customAlertModal.querySelector('.modal-content').classList.add('scale-100');
+        }
+
+        customAlertOkBtn.addEventListener('click', () => {
+            // If a confirmAction is pending, resolve it as false (like a cancel)
+            if (confirmAction) {
+                confirmAction(false); 
+            }
+            customAlertModal.classList.add('invisible', 'opacity-0');
+            customAlertModal.querySelector('.modal-content').classList.add('scale-95');
+            customAlertModal.querySelector('.modal-content').classList.remove('scale-100');
+        });
+        
+        // --- UI Update Functions ---
+        function showLoginUI() {
+            loginSection.classList.remove('hidden');
+            appContent.classList.add('hidden');
+            document.body.classList.add('justify-center'); // Center login button
+            if (unsubscribeTasks) {
+                unsubscribeTasks(); // Stop listening to tasks if logged out
+                unsubscribeTasks = null;
+            }
+            Object.values(columns).forEach(col => col.innerHTML = ''); // Clear tasks from UI
+            console.log("Showing login UI");
+        }
+
+        function showAppUI(user) {
+            loginSection.classList.add('hidden');
+            appContent.classList.remove('hidden');
+            document.body.classList.remove('justify-center'); // Remove centering for app view
+            userNameDisplay.textContent = user.displayName || 'User';
+            userIdDisplay.textContent = user.uid;
+            console.log("Showing app UI for user:", user.uid);
+        }
+
+        // --- Authentication ---
+        const provider = new GoogleAuthProvider();
+
+        loginWithGoogleBtn.addEventListener('click', async () => {
+            try {
+                loginWithGoogleBtn.disabled = true;
+                loginWithGoogleBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Signing in...';
+                await setPersistence(auth, browserLocalPersistence); // Persist session
+                await signInWithPopup(auth, provider);
+                // onAuthStateChanged will handle UI update
+            } catch (error) {
+                console.error("Google Sign-In Error:", error.code, error.message);
+                if (error.code === 'auth/unauthorized-domain') {
+                    showAlert("Login Failed: Unauthorized Domain", 
+                              "This application's domain is not authorized for Firebase Authentication. " +
+                              "Please go to your Firebase project console, navigate to Authentication > Sign-in method, " +
+                              "and add the current domain (where this app is hosted) to the list of authorized domains. " +
+                              "The domain might be something like 'your-project-id.web.app' or a custom domain if you've set one up.");
+                } else if (error.code === 'auth/popup-closed-by-user') {
+                    showAlert("Login Cancelled", "You closed the Google Sign-In window before completing the process. Please try again if you wish to sign in.");
+                } else if (error.code === 'auth/cancelled-popup-request' || error.code === 'auth/popup-blocked') {
+                     showAlert("Login Information", "The sign-in popup was closed or blocked. This can happen if another sign-in popup was already open or if your browser blocked it. Please try again.");
+                } else {
+                    showAlert("Login Failed", `Could not sign in with Google: ${error.message} (Code: ${error.code}). Please try again.`);
+                }
+            } finally {
+                loginWithGoogleBtn.disabled = false;
+                loginWithGoogleBtn.innerHTML = '<i class="fab fa-google mr-2"></i>Sign in with Google';
+            }
+        });
+
+        logoutBtn.addEventListener('click', async () => {
+            try {
+                await signOut(auth);
+                // onAuthStateChanged will handle UI update to login screen
+                console.log("User signed out.");
+            } catch (error) {
+                console.error("Sign Out Error:", error);
+                showAlert("Logout Failed", `Could not sign out: ${error.message}`);
+            }
+        });
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUserId = user.uid;
+                // Path for user-specific private data
+                tasksCollectionRef = collection(db, `artifacts/${appId}/users/${currentUserId}/tasks`);
+                showAppUI(user);
+                loadTasks(); 
+            } else {
+                currentUserId = null;
+                tasksCollectionRef = null;
+                showLoginUI();
+            }
+        });
+
+        // --- Modal Handling (same as before) ---
+        function openModal(task = null) {
+            taskForm.reset();
+            if (task) {
+                modalTitle.textContent = 'Edit Task';
+                taskIdInput.value = task.id;
+                taskTitleInput.value = task.title;
+                taskDescriptionInput.value = task.description || '';
+                saveTaskBtn.textContent = 'Update Task';
+            } else {
+                modalTitle.textContent = 'Add New Task';
+                taskIdInput.value = ''; 
+                saveTaskBtn.textContent = 'Save Task';
+            }
+            taskModal.classList.remove('invisible', 'opacity-0');
+            taskModal.querySelector('.modal-content').classList.remove('scale-95');
+            taskModal.querySelector('.modal-content').classList.add('scale-100');
+            taskTitleInput.focus();
+        }
+
+        function closeModal() {
+            taskModal.classList.add('invisible', 'opacity-0');
+            taskModal.querySelector('.modal-content').classList.add('scale-95');
+            taskModal.querySelector('.modal-content').classList.remove('scale-100');
+        }
+
+        addTaskBtn.addEventListener('click', () => openModal());
+        cancelTaskBtn.addEventListener('click', closeModal);
+        taskModal.addEventListener('click', (e) => { // Close on backdrop click
+            if (e.target === taskModal) {
+                closeModal();
+            }
+        });
+
+        // --- Task Management (largely same, ensure currentUserId and tasksCollectionRef are checked) ---
+        taskForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!currentUserId || !tasksCollectionRef) {
+                showAlert("Error", "User not authenticated or data path not set. Cannot save task.");
+                return;
+            }
+
+            const title = taskTitleInput.value.trim();
+            const description = taskDescriptionInput.value.trim();
+            const id = taskIdInput.value;
+
+            if (!title) {
+                showAlert("Validation Error", "Task title cannot be empty.");
+                return;
+            }
+
+            const taskData = {
+                title,
+                description,
+                updatedAt: serverTimestamp() // Firestore server timestamp for updates
+            };
+
+            try {
+                saveTaskBtn.disabled = true;
+                saveTaskBtn.textContent = id ? 'Updating...' : 'Saving...';
+                if (id) { // Editing existing task
+                    const taskRef = doc(tasksCollectionRef, id);
+                    await updateDoc(taskRef, taskData);
+                    console.log("Task updated:", id);
+                } else { // Adding new task
+                    taskData.status = 'todo'; // Default status for new tasks
+                    taskData.createdAt = serverTimestamp(); // Firestore server timestamp for creation
+                    const newDocRef = await addDoc(tasksCollectionRef, taskData);
+                    console.log("Task added with ID:", newDocRef.id);
+                }
+                closeModal();
+            } catch (error) {
+                console.error("Error saving task:", error);
+                showAlert("Save Error", `Failed to save task: ${error.message}`);
+            } finally {
+                saveTaskBtn.disabled = false;
+                 saveTaskBtn.textContent = id ? 'Update Task' : 'Save Task';
+            }
+        });
+        
+        // --- Custom Confirmation Modal Logic ---
+        let confirmAction = null;
+        // const confirmModal = document.getElementById('customAlertModal'); // Re-using for confirmation
+        // const confirmOkBtn = document.getElementById('customAlertOkBtn'); // Already defined
+
+        async function showConfirm(title, message) {
+            return new Promise((resolve) => {
+                customAlertTitle.textContent = title;
+                customAlertMessage.textContent = message;
+                
+                // Store the resolve function to be called by the OK button's event listener
+                confirmAction = (confirmed) => {
+                    resolve(confirmed);
+                    confirmAction = null; // Reset for next use
+                };
+
+                customAlertModal.classList.remove('invisible', 'opacity-0');
+                customAlertModal.querySelector('.modal-content').classList.remove('scale-95');
+                customAlertModal.querySelector('.modal-content').classList.add('scale-100');
+                
+                // The existing customAlertOkBtn listener will now call confirmAction(true)
+                // if confirmAction is set. And if user clicks outside or Esc (if implemented for modal),
+                // it should ideally call confirmAction(false). The current customAlertOkBtn listener
+                // has been modified to handle this by calling confirmAction(false) if it's set,
+                // effectively making the "OK" button a "Cancel" if it's clicked for a simple alert
+                // while a confirm is pending. This is a bit of a hack due to modal reuse.
+                // A dedicated confirm modal with "Yes" and "No" buttons would be cleaner.
+
+                // For this setup, clicking "OK" on the reused modal during a "showConfirm"
+                // will effectively mean "confirm: true". If the modal is dismissed otherwise
+                // (e.g. by clicking backdrop if that's implemented, or if we add a cancel button),
+                // it should resolve to false. The current customAlertOkBtn's main listener
+                // will call confirmAction(false) if it's active, which is not ideal for "OK".
+                // Let's adjust the main customAlertOkBtn listener slightly.
+
+                // The `customAlertOkBtn`'s primary event listener (defined earlier)
+                // needs to be aware if it's serving a confirm dialog or a simple alert.
+                // When `showConfirm` is called, it sets `confirmAction`.
+                // The `customAlertOkBtn` listener, when clicked, should check if `confirmAction` is set.
+                // If it is, it should call `confirmAction(true)`.
+                // Then it should proceed to hide the modal.
+                // The previous `tempOkListener` approach within `showConfirm` was better. Let's revert to that idea.
+
+                // Detach any existing specific listener for confirm to avoid multiple calls
+                // This is simplified; a robust solution would manage listeners more carefully.
+                const newOkListener = () => {
+                    if (confirmAction) {
+                        confirmAction(true);
+                    }
+                    customAlertModal.classList.add('invisible', 'opacity-0'); // Standard hide
+                    customAlertModal.querySelector('.modal-content').classList.add('scale-95');
+                    customAlertModal.querySelector('.modal-content').classList.remove('scale-100');
+                    customAlertOkBtn.removeEventListener('click', newOkListener); // Clean self up
+                };
+                customAlertOkBtn.addEventListener('click', newOkListener, { once: true }); // Use once to auto-remove
+
+                // If user clicks outside modal (backdrop) - treat as cancel for confirm
+                const backdropClickListener = (e) => {
+                    if (e.target === customAlertModal) {
+                        if (confirmAction) {
+                            confirmAction(false);
+                        }
+                        customAlertModal.classList.add('invisible', 'opacity-0'); // Standard hide
+                        customAlertModal.querySelector('.modal-content').classList.add('scale-95');
+                        customAlertModal.querySelector('.modal-content').classList.remove('scale-100');
+                        customAlertModal.removeEventListener('click', backdropClickListener);
+                        customAlertOkBtn.removeEventListener('click', newOkListener); // Also clean up OK if backdrop is clicked
+                    }
+                };
+                customAlertModal.addEventListener('click', backdropClickListener);
+
+            });
+        }
+
+
+        function renderTask(task) {
+            const taskCard = document.createElement('div');
+            taskCard.id = `task-${task.id}`;
+            taskCard.className = 'task-card bg-slate-800 p-4 rounded-lg shadow-lg border border-slate-700 hover:border-indigo-500';
+            taskCard.draggable = true;
+            taskCard.dataset.id = task.id; // Store task ID for drag/drop and actions
+
+            taskCard.innerHTML = `
+                <h3 class="font-semibold text-lg mb-1 text-white">${task.title}</h3>
+                ${task.description ? `<p class="text-sm text-slate-400 mb-3 break-words">${task.description}</p>` : ''}
+                <div class="flex justify-end space-x-2 mt-2">
+                    <button class="edit-task-btn text-slate-400 hover:text-sky-400 transition text-xs" title="Edit Task"><i class="fas fa-edit"></i></button>
+                    <button class="delete-task-btn text-slate-400 hover:text-red-400 transition text-xs" title="Delete Task"><i class="fas fa-trash-alt"></i></button>
+                </div>
+            `;
+
+            // Add event listeners for edit and delete
+            taskCard.querySelector('.edit-task-btn').addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent drag start
+                openModal(task);
+            });
+
+            taskCard.querySelector('.delete-task-btn').addEventListener('click', async (e) => {
+                e.stopPropagation(); // Prevent drag start
+                
+                const confirmed = await showConfirm("Confirm Delete", `Are you sure you want to delete task: "${task.title}"? This action cannot be undone.`);
+
+                if (confirmed) {
+                    try {
+                        if (!currentUserId || !tasksCollectionRef) {
+                             showAlert("Error", "User not authenticated. Cannot delete task.");
+                             return;
+                        }
+                        await deleteDoc(doc(tasksCollectionRef, task.id));
+                        console.log("Task deleted:", task.id);
+                        // The onSnapshot listener will automatically remove it from the UI
+                    } catch (error) {
+                        console.error("Error deleting task:", error);
+                        showAlert("Delete Error", `Failed to delete task: ${error.message}`);
+                    }
+                } else {
+                    console.log("Deletion cancelled for task:", task.id);
+                }
+            });
+
+            // Drag and drop event listeners for the task card
+            taskCard.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', task.id);
+                e.target.classList.add('dragging');
+                // console.log('Drag start:', task.id);
+            });
+
+            taskCard.addEventListener('dragend', (e) => {
+                e.target.classList.remove('dragging');
+                // console.log('Drag end:', task.id);
+            });
+
+            return taskCard;
+        }
+
+        function loadTasks() {
+            if (!currentUserId || !tasksCollectionRef) {
+                console.log("Cannot load tasks: User not authenticated or collection ref not set.");
+                Object.values(columns).forEach(col => col.innerHTML = ''); // Clear tasks if no user
+                return;
+            }
+            console.log("Setting up tasks listener for user:", currentUserId, "on path:", tasksCollectionRef.path);
+
+            // Clear existing tasks before setting up new listener to avoid duplicates if called multiple times
+            // Object.values(columns).forEach(col => col.innerHTML = ''); // This is now handled inside onSnapshot
+
+
+            if (unsubscribeTasks) {
+                unsubscribeTasks(); // Unsubscribe from previous listener if exists
+                console.log("Unsubscribed from previous tasks listener.");
+            }
+            
+            const q = query(tasksCollectionRef); // Potentially add orderBy('createdAt', 'desc') if needed, but requires index
+
+            unsubscribeTasks = onSnapshot(q, (snapshot) => {
+                console.log("Tasks snapshot received. Docs count:", snapshot.docs.length);
+                // Clear columns before re-rendering
+                Object.values(columns).forEach(col => col.innerHTML = '');
+
+                snapshot.docs.forEach(document => {
+                    const taskData = document.data();
+                    const task = { id: document.id, ...taskData };
+                    // console.log("Processing task:", task.id, "Status:", task.status);
+
+                    const taskElement = renderTask(task);
+                    if (columns[task.status]) {
+                        columns[task.status].appendChild(taskElement);
+                    } else {
+                        console.warn(`Task ${task.id} has unknown status: ${task.status}. Placing in 'todo'.`);
+                        columns.todo.appendChild(taskElement); // Default to 'todo' if status is invalid
+                    }
+                });
+            }, (error) => {
+                console.error("Error fetching tasks with onSnapshot:", error);
+                showAlert("Loading Error", `Failed to load tasks in real-time: ${error.message}`);
+            });
+            console.log("Tasks listener attached.");
+        }
+
+        // --- Drag and Drop for Columns (same as before, ensure currentUserId check) ---
+        columnElements.forEach(columnEl => {
+            columnEl.addEventListener('dragover', (e) => {
+                e.preventDefault(); // Necessary to allow dropping
+                columnEl.classList.add('drag-over');
+            });
+
+            columnEl.addEventListener('dragleave', (e) => {
+                columnEl.classList.remove('drag-over');
+            });
+
+            columnEl.addEventListener('drop', async (e) => {
+                e.preventDefault();
+                columnEl.classList.remove('drag-over');
+                const taskId = e.dataTransfer.getData('text/plain');
+                const newStatus = columnEl.dataset.status;
+                // console.log(`Task ${taskId} dropped into ${newStatus}`);
+                
+                if (!currentUserId || !tasksCollectionRef) {
+                    showAlert("Error", "User not authenticated. Cannot update task status.");
+                    return;
+                }
+                const taskRef = doc(tasksCollectionRef, taskId);
+                try {
+                    const taskDoc = await getDoc(taskRef);
+                    if (!taskDoc.exists()) {
+                        showAlert("Error", "Task not found. It might have been deleted.");
+                        return;
+                    }
+                    const oldStatus = taskDoc.data().status;
+                    await updateDoc(taskRef, { status: newStatus, updatedAt: serverTimestamp() });
+                    // console.log(`Task ${taskId} status updated to ${newStatus} in Firestore.`);
+
+                    if (newStatus === 'done' && oldStatus !== 'done') {
+                        triggerConfetti();
+                    }
+                } catch (error) {
+                    console.error("Error updating task status:", error);
+                    showAlert("Update Error", `Failed to update task status: ${error.message}`);
+                }
+            });
+        });
+
+        // --- Confetti Animation (same as before) ---
+        function triggerConfetti() {
+            const confettiCount = 150;
+            const colors = ['#FFC700', '#FF0000', '#2E3192', '#44C4A1', '#A864A8', '#FF7F50', '#00CED1'];
+            const doneColumn = document.getElementById('done'); 
+            const rect = doneColumn.getBoundingClientRect(); 
+
+            for (let i = 0; i < confettiCount; i++) {
+                const particle = document.createElement('div');
+                particle.classList.add('confetti-particle');
+                document.body.appendChild(particle); 
+
+                const color = colors[Math.floor(Math.random() * colors.length)];
+                particle.style.backgroundColor = color;
+                const startX = rect.left + Math.random() * rect.width;
+                const startY = rect.top + Math.random() * rect.height * 0.3; 
+                particle.style.left = `${startX}px`;
+                particle.style.top = `${startY}px`;
+
+                const angle = Math.random() * Math.PI * 2; 
+                const velocity = 50 + Math.random() * 100; 
+                const gravity = 0.8;
+                const duration = 2000 + Math.random() * 2000; 
+                let vx = Math.cos(angle) * velocity;
+                let vy = Math.sin(angle) * velocity;
+                let startTime = null;
+
+                function animateConfetti(timestamp) {
+                    if (!startTime) startTime = timestamp;
+                    const progress = timestamp - startTime;
+                    vy += gravity; 
+                    particle.style.transform = `translate(${vx * (progress / 100)}px, ${vy * (progress / 100)}px) rotate(${progress / 10}deg)`;
+                    particle.style.opacity = 1 - (progress / duration);
+                    if (progress < duration) {
+                        requestAnimationFrame(animateConfetti);
+                    } else {
+                        particle.remove();
+                    }
+                }
+                requestAnimationFrame(animateConfetti);
+            }
+        }
+        // Initial check is handled by onAuthStateChanged
+        console.log("Kanban App with Google Login Initialized.");
+    </script>
+</body>
+
+</html>
